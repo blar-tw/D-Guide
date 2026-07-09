@@ -1,0 +1,290 @@
+"""Holonomic Dynamic Window Approach — the tuned planner from the HOLO-DWA
+project (github.com/blar-tw/HOLO-DWA), vendored into D-Guide unchanged.
+
+Pure algorithm: numpy only, no rclpy or dronekit, so it is flight-stack-
+agnostic. It takes the drone's state, a local goal, and a 2D obstacle point
+cloud (from LiDAR), and returns the best `(vx, vy)` velocity in the same local
+frame. The velocity-space search is vectorized so it runs comfortably inside a
+~10-20 Hz control loop.
+
+Tuning (blend velocity reward, direction-based clearance, continuous terminal
+basin) is documented in the source project's holo_lab/EXPERIMENTS.md — 15/15
+runs, zero collisions. Do not re-tune here without re-running that harness.
+"""
+import math
+import numpy as np
+
+
+class Config:
+    def __init__(self):
+        self.v_max = 10.0
+        self.vx_min = -10.0
+        self.vx_max = 10.0
+        self.vy_min = -10.0
+        self.vy_max = 10.0
+
+        self.a_max = 5.0
+        self.brake_a_max = 5.0
+
+        self.vx_resolution = 0.1
+        self.vy_resolution = 0.1
+        self.control_dt = 0.2
+        self.predict_time = 2.0
+        self.predict_dt = 0.1
+
+        self.heading_weight = 0.2
+        self.clearance_weight = 0.2
+        self.velocity_weight = 0.6
+
+        # Velocity reward mode (see docs/discussion.md section 1):
+        #   "scalar"    reward raw |v|; keeps sliding along walls out of
+        #               local minima, but wanders diagonally while
+        #               accelerating in open space (box-window corners
+        #               have higher |v|).
+        #   "component" reward only the goal-directed velocity component;
+        #               flies straight in open space, but deadlocks in
+        #               front of walls (sideways escape scores zero).
+        #   "blend"     max(component, blend_alpha * scalar); component
+        #               drives in open space, the scaled scalar term keeps
+        #               a floor reward for any motion when blocked.
+        self.velocity_mode = "scalar"
+        self.blend_alpha = 0.5
+
+        # clearance_score saturates at this many meters of safe_dist (margin
+        # beyond robot_radius). Lower = "safe enough is enough": trajectories
+        # keeping >= this margin all score 1.0, and the 0..norm band gets a
+        # steeper gradient, so the term concentrates on truly close passes
+        # instead of rewarding loitering far from any obstacle (doorway
+        # problem, docs/discussion.md section 2).
+        self.clearance_norm = 1.0
+        # > 0 switches the clearance TERM to a direction-based measure: the
+        # minimum obstacle distance along the candidate's unit direction over
+        # this fixed distance (m), independent of candidate speed. With the
+        # legacy time-based measure (min over the predicted ray, value 0),
+        # slower candidates have shorter rays and therefore higher clearance,
+        # so the term rewards creeping; the drone inches straight into
+        # obstacles that a 1-2 m lookahead would flag ("creep trap"). The
+        # feasibility mask and braking cap still use the true time-based
+        # trajectory - this only changes how the *score* judges direction
+        # safety, cleanly separating direction quality (heading+clearance)
+        # from speed choice (velocity term under the braking cap).
+        self.clearance_lookahead = 0.0
+
+        self.robot_radius = 0.2
+        self.goal_threshold = 0.3
+        # Radius (m) of the terminal-attraction basin around the goal: any
+        # candidate whose predicted ray passes within this of the goal is
+        # scored by goal proximity + braking-curve speed match instead of
+        # the regular three-term sum. Must be comfortably larger than
+        # goal_threshold: with only the old binary passes-within-threshold
+        # bonus, a fast flyby whose ray misses the small circle gets no
+        # terminal signal at all, and the +/-a*dt window cannot bend the
+        # path in - the drone settles into a stable orbit around the goal
+        # (verifyA run 1: 90 s circling at 1.5-2.4 m, bonus fired 0 ticks).
+        self.goal_capture = 2.0
+        # Deceleration (m/s^2) assumed by the terminal approach speed curve
+        # v = sqrt(2 a d). Using the full brake_a_max keeps v_max until
+        # ~1.6 m out and sheds 0.75 m/s over the last meter - with any
+        # tracking noise the first pass overshoots the goal circle and costs
+        # a full go-around lap. A softer value starts the deceleration
+        # ~2.5 m out and enters the circle at ~0.7 m/s, making first-pass
+        # capture robust for ~1 s of extra flight time.
+        self.goal_approach_a = 0.5
+
+
+def scan_to_world_points(ranges, angle_min, angle_increment, range_min, range_max,
+                          robot_x, robot_y, yaw, stride=1, flip_y=False):
+    """Convert a body-frame 2D LiDAR scan into local/world-frame obstacle points.
+
+    angle 0 in the scan is straight ahead along the sensor's local +x axis;
+    `yaw` rotates that into the same frame as (robot_x, robot_y). `stride`
+    subsamples the rays to keep the point cloud small for the DWA search.
+
+    flip_y handles the scan-frame handedness. The rotation below assumes a
+    positive scan angle sweeps toward the body +y of the (robot_x, robot_y)
+    frame. PX4's local frame is NED with an FRD body (+y = right), but a
+    Gazebo gpu_lidar publishes angles in the z-up sensor frame (+y = LEFT),
+    so consuming such a scan with NED odometry requires flip_y=True or every
+    obstacle is MIRRORED across the body axis (left/right swapped). This
+    exact mismatch made the drone dodge phantom obstacles into the real
+    staggered cylinders, the only mirror-asymmetric part of the arena.
+    """
+    ranges = np.asarray(ranges, dtype=float)
+    idx = np.arange(0, len(ranges), stride)
+    r = ranges[idx]
+    angles = angle_min + idx * angle_increment
+    if flip_y:
+        angles = -angles
+
+    valid = np.isfinite(r) & (r > range_min) & (r < range_max)
+    if not np.any(valid):
+        return np.empty((0, 2))
+
+    r = r[valid]
+    a = angles[valid]
+
+    body_x = r * np.cos(a)
+    body_y = r * np.sin(a)
+
+    cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+    world_x = robot_x + body_x * cos_yaw - body_y * sin_yaw
+    world_y = robot_y + body_x * sin_yaw + body_y * cos_yaw
+
+    return np.stack([world_x, world_y], axis=1)
+
+
+def dwa_control(state, goal_xy, obstacle_points, config, return_debug=False):
+    """Vectorized holonomic DWA search over the (vx, vy) dynamic window.
+
+    state: dict with "x", "y", "vx", "vy" in a common local frame.
+    goal_xy: (x, y) target in the same frame.
+    obstacle_points: (K, 2) array in the same frame, or shape (0, 2) if
+        nothing was seen.
+
+    Returns (vx, vy, ok). ok is False when no admissible velocity survives
+    (every sampled velocity would enter an obstacle or exceed the safe
+    braking speed) — the caller should hold / brake in that case.
+
+    If return_debug is True, returns (vx, vy, ok, debug) instead, where debug
+    is the chosen trajectory's score breakdown (raw 0..1 sub-scores and their
+    weighted contributions) or None when ok is False. Debug is for
+    logging/inspection only and does not affect the search.
+    """
+    x0, y0 = state["x"], state["y"]
+    vx_curr, vy_curr = state["vx"], state["vy"]
+    goal_x, goal_y = goal_xy
+
+    vx_min_d = max(config.vx_min, vx_curr - config.a_max * config.control_dt)
+    vx_max_d = min(config.vx_max, vx_curr + config.a_max * config.control_dt)
+    vy_min_d = max(config.vy_min, vy_curr - config.a_max * config.control_dt)
+    vy_max_d = min(config.vy_max, vy_curr + config.a_max * config.control_dt)
+
+    vx_range = np.arange(vx_min_d, vx_max_d + config.vx_resolution, config.vx_resolution)
+    vy_range = np.arange(vy_min_d, vy_max_d + config.vy_resolution, config.vy_resolution)
+    VX, VY = np.meshgrid(vx_range, vy_range, indexing="ij")
+    VX = VX.ravel()
+    VY = VY.ravel()
+
+    speed = np.hypot(VX, VY)
+    feasible = (speed > 1e-6) & (speed <= config.v_max)
+
+    steps = np.arange(config.predict_dt, config.predict_time + 1e-9, config.predict_dt)
+    traj_x = x0 + VX[:, None] * steps[None, :]
+    traj_y = y0 + VY[:, None] * steps[None, :]
+
+    # Guards divisions by |v|; sub-1e-6-speed candidates are infeasible anyway.
+    speed_denom = np.where(speed > 1e-6, speed, 1.0)
+    if obstacle_points.shape[0] > 0:
+        ox = obstacle_points[:, 0]
+        oy = obstacle_points[:, 1]
+        dx = traj_x[:, :, None] - ox[None, None, :]
+        dy = traj_y[:, :, None] - oy[None, None, :]
+        dist_to_nearest = np.sqrt(dx * dx + dy * dy).min(axis=2)
+        traj_clearance = dist_to_nearest.min(axis=1)
+        if config.clearance_lookahead > 0.0:
+            # Speed-independent direction probe: sample fixed arc-length
+            # points along each candidate's unit direction (see Config).
+            n_probe = 6
+            s_steps = np.linspace(config.clearance_lookahead / n_probe,
+                                  config.clearance_lookahead, n_probe)
+            dir_x = VX / speed_denom
+            dir_y = VY / speed_denom
+            probe_x = x0 + dir_x[:, None] * s_steps[None, :]
+            probe_y = y0 + dir_y[:, None] * s_steps[None, :]
+            pdx = probe_x[:, :, None] - ox[None, None, :]
+            pdy = probe_y[:, :, None] - oy[None, None, :]
+            dir_clearance = np.sqrt(pdx * pdx + pdy * pdy).min(axis=2).min(axis=1)
+        else:
+            dir_clearance = traj_clearance
+    else:
+        traj_clearance = np.full(VX.shape, np.inf)
+        dir_clearance = traj_clearance
+
+    safe_dist = traj_clearance - config.robot_radius
+    feasible &= safe_dist > 0
+
+    safe_speed = np.sqrt(2.0 * np.clip(safe_dist, 0.0, None) * config.brake_a_max)
+    feasible &= speed <= safe_speed
+
+    min_goal_dist = np.hypot(goal_x - traj_x, goal_y - traj_y).min(axis=1)
+
+    goal_dx, goal_dy = goal_x - x0, goal_y - y0
+    start_dist = math.hypot(goal_dx, goal_dy)
+    scalar_speed = np.clip(speed, 0.0, config.v_max)
+    if start_dist > 1e-6:
+        ux, uy = goal_dx / start_dist, goal_dy / start_dist
+        # Goal-directed speed component, used by "component"/"blend" velocity modes.
+        component_speed = np.clip(VX * ux + VY * uy, 0.0, config.v_max)
+        # Heading score = cosine of the angle between the velocity vector and the
+        # direction to the goal, in [-1, 1] (+1 = straight at goal, -1 = directly
+        # away). Distance-INDEPENDENT: this replaces the old progress-ratio term
+        # (start_dist - final_dist)/start_dist, which shrank to ~0 far from the
+        # goal and let the drone run away at max speed in open space with almost
+        # no restoring pull. See docs/discussion.md section 3.
+        heading_score = (VX * ux + VY * uy) / speed_denom
+    else:
+        component_speed = np.zeros_like(scalar_speed)
+        heading_score = np.zeros_like(scalar_speed)
+
+    clearance_score = np.clip((dir_clearance - config.robot_radius) / config.clearance_norm,
+                              0.0, 1.0)
+    # Tradeoffs of each mode are documented on Config.velocity_mode and in
+    # docs/discussion.md section 1.
+    if config.velocity_mode == "scalar":
+        reward_speed = scalar_speed
+    elif config.velocity_mode == "component":
+        reward_speed = component_speed
+    elif config.velocity_mode == "blend":
+        reward_speed = np.maximum(component_speed, config.blend_alpha * scalar_speed)
+    else:
+        raise ValueError(f"Unknown velocity_mode: {config.velocity_mode!r}")
+    velocity_score = reward_speed / config.v_max
+
+    score = (
+        config.heading_weight * heading_score
+        + config.clearance_weight * clearance_score
+        + config.velocity_weight * velocity_score
+    )
+    # Terminal attraction basin (see Config.goal_capture). Candidates whose
+    # ray passes within goal_capture of the goal are scored by proximity
+    # first (x10 so meters of miss always beat m/s of speed mismatch) and
+    # braking-curve speed match second. History of this term:
+    #   `10000 + speed` (fastest through the small circle)  -> full-speed
+    #     arrival, tracking error turns near-misses into overshoot orbits;
+    #   `10000 - speed` (slowest)                            -> crawls the
+    #     whole final ~4.5 m;
+    #   `10000 - |speed - sqrt(2 a d)|` binary on threshold  -> good when a
+    #     ray crosses the 0.5 m circle, but a flyby whose rays miss it gets
+    #     NO terminal pull at all and orbits the goal forever (verifyA).
+    # The continuous basin + braking curve fixes both: any near pass is
+    # steered toward the center, arriving at a killable speed.
+    stop_dist = max(start_dist - config.goal_threshold, 0.0)
+    goal_speed_target = min(config.v_max, math.sqrt(2.0 * config.goal_approach_a * stop_dist))
+    near_goal = min_goal_dist < config.goal_capture
+    score = np.where(near_goal,
+                     10000.0 - 10.0 * min_goal_dist - np.abs(speed - goal_speed_target),
+                     score)
+    score = np.where(feasible, score, -np.inf)
+
+    if not np.any(feasible):
+        if return_debug:
+            return 0.0, 0.0, False, None
+        return 0.0, 0.0, False
+
+    best = np.argmax(score)
+    if return_debug:
+        debug = {
+            # Raw sub-scores of the chosen trajectory. heading is in [-1, 1]
+            # (cosine to goal); clearance and velocity are in [0, 1].
+            "heading_score": float(heading_score[best]),
+            "clearance_score": float(clearance_score[best]),
+            "velocity_score": float(velocity_score[best]),
+            # Weighted contributions actually summed into the total score
+            "heading_term": float(config.heading_weight * heading_score[best]),
+            "clearance_term": float(config.clearance_weight * clearance_score[best]),
+            "velocity_term": float(config.velocity_weight * velocity_score[best]),
+            "total": float(score[best]),
+            "safe_dist": float(safe_dist[best]),
+        }
+        return float(VX[best]), float(VY[best]), True, debug
+    return float(VX[best]), float(VY[best]), True

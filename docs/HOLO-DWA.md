@@ -1,18 +1,19 @@
-# HOLO-DWA Obstacle Avoidance — Integration Design
+# HOLO-DWA Obstacle Avoidance
 
-D-Guide currently flies waypoint-to-waypoint with no awareness of obstacles
-between waypoints. The avoidance layer for this is **HOLO-DWA** — a holonomic
-Dynamic Window Approach planner developed as a standalone companion project:
+D-Guide's obstacle avoidance is **HOLO-DWA** — a holonomic Dynamic Window
+Approach planner developed and tuned as a standalone companion project, now
+integrated into the flight loop:
 
 > **[blar-tw/HOLO-DWA](https://github.com/blar-tw/HOLO-DWA)** — reactive,
-> LiDAR-driven obstacle avoidance for a simulated multirotor (PX4 SITL +
-> Gazebo). Validated in a repeatable experiment harness: **15/15 runs reached
-> the goal with zero collisions** on a wall-slalom-gate obstacle course
-> (baseline before tuning: 1/5 with 44+ collisions). The full tuning study is
-> in its [`holo_lab/EXPERIMENTS.md`](https://github.com/blar-tw/HOLO-DWA/tree/main/holo_lab).
+> LiDAR-driven obstacle avoidance for a multirotor. Validated in a repeatable
+> experiment harness: **15/15 runs reached the goal with zero collisions** on a
+> wall-slalom-gate course (baseline before tuning: 1/5 with 44+ collisions).
+> Full tuning study:
+> [`holo_lab/EXPERIMENTS.md`](https://github.com/blar-tw/HOLO-DWA/tree/main/holo_lab).
 
-The algorithm itself is implemented and validated; **its integration into
-D-Guide is planned** and designed below.
+In D-Guide it lives in the `obstacle_avoidance` package: the tuned planner
+(`dwa_core.py`, vendored unchanged) plus a flight executor (`dwa_navigator`)
+that drives a real ArduPilot drone.
 
 ## Why DWA, and why holonomic
 
@@ -30,60 +31,54 @@ Key design points inherited from the HOLO-DWA study:
 - **Directional clearance probing (1.5 m)** — prevents the "creeping trap"
   near obstacles.
 - **Braking-curve goal bonus** — stops the drone orbiting the goal.
-- **Frame discipline** — Gazebo FLU vs PX4 FRD mirroring was the root cause
-  of early failures; any integration must be explicit about frames.
+- **Frame discipline** — a standard `LaserScan` is left-handed relative to the
+  NED/FRD body frame, so its points are mirrored (`LIDAR_FLIP_Y`). Getting this
+  wrong sends the drone *into* obstacles; verify with the spin test in
+  [installation.md](installation.md).
 
-## Where it fits in D-Guide
+## How it flies (D-Guide integration)
 
-Today's mission flow commands the flight controller directly per waypoint:
-
-```mermaid
-flowchart LR
-    CN[control_node] -->|FollowPP action| FS[followpp_server]
-    FS -->|simple_goto per waypoint| FC[Flight controller]
-```
-
-With avoidance, the waypoint becomes a *local goal* for the DWA layer, which
-owns the velocity commands:
+The `dwa_navigator` node serves the same `follow_waypoints` (FollowPP) action
+as the simple flight server, so `control_node` is unchanged. The difference is
+what happens per waypoint:
 
 ```mermaid
 flowchart LR
-    CN[control_node] -->|FollowPP action| FS[followpp_server]
-    FS -->|local goal: next waypoint| OA[obstacle_avoidance node<br/>dwa_core]
-    L[2D LiDAR] -->|/lidar LaserScan| OA
-    OD[odometry] --> OA
-    OA -->|velocity setpoints| FC[Flight controller]
+    CN[control_node] -->|FollowPP action| NAV[dwa_navigator]
+    L[2D LiDAR] -->|/scan LaserScan| NAV
+    NAV -->|dwa_core.dwa_control| NAV
+    NAV -->|GUIDED velocity setpoint<br/>SET_POSITION_TARGET_LOCAL_NED| FC[Pixhawk / ArduPilot]
 ```
 
-## Planned integration steps
+Per waypoint, at ~10 Hz:
 
-1. **New package `ros_ws/src/obstacle_avoidance`** vendoring
-   [`dwa_core.py`](https://github.com/blar-tw/HOLO-DWA/blob/main/dwa_core.py)
-   (pure Python, no ROS deps — imports cleanly).
-2. **Node `dwa_node`**: subscribes `LaserScan` + odometry, exposes a
-   `set_local_goal` interface (topic or service) fed by `followpp_server`,
-   publishes velocity setpoints at 20 Hz.
-3. **Flight-stack bridge** — the open design decision:
-   - *HOLO-DWA native path*: PX4 offboard via uXRCE-DDS
-     (`/fmu/in/trajectory_setpoint`), exactly as the companion repo already
-     does. Requires D-Guide's SITL demo to run PX4 instead of ArduPilot.
-   - *D-Guide native path*: ArduPilot GUIDED velocity commands via
-     MAVLink (`SET_POSITION_TARGET_LOCAL_NED` through dronekit/pymavlink).
-     Keeps the current DroneKit stack; needs a thin adapter mapping
-     `dwa_core` output to MAVLink velocity setpoints.
-4. **`followpp_server` change**: instead of `simple_goto(waypoint)`, publish
-   the waypoint as the DWA local goal and monitor progress; keep the existing
-   action feedback (`current_index`, `distance_to_goal`) unchanged.
-5. **Validation**: port the `holo_lab` experiment harness scenario (wall →
-   slalom → gate) into the D-Guide SITL setup and require the same bar —
-   repeated runs, zero collisions — before flying it on hardware.
+1. Convert the GPS waypoint to a **local NED goal** relative to the drone's
+   current position (equirectangular; accurate over short street legs).
+2. Build an obstacle point cloud from the latest `LaserScan`, rotated into the
+   local frame by the drone's heading.
+3. `dwa_core.dwa_control(state, goal, obstacles, cfg)` → best `(vx, vy)`.
+4. Send it as an **ArduPilot GUIDED velocity command**
+   (`SET_POSITION_TARGET_LOCAL_NED`, velocity + yaw, `vz = 0` to hold
+   altitude), nose turned toward the goal so the forward LiDAR covers the
+   travel direction.
+5. Advance to the next waypoint within `tolerance` metres; land after the last.
+
+With no LiDAR data the obstacle set is empty and DWA flies straight to the
+goal, so the same node also works as a plain waypoint follower (and in SITL).
+
+## Flight-stack note
+
+D-Guide runs **ArduPilot + DroneKit/MAVLink** (matching the Raspberry-Pi
+deployment), so `dwa_navigator` commands velocity via MAVLink GUIDED. The
+companion HOLO-DWA repo drives the *same* `dwa_core` planner through **PX4
+offboard + uXRCE-DDS** in SITL — the planner is flight-stack-agnostic; only the
+thin command/telemetry layer differs.
 
 ## Status
 
 | Piece | Status |
 |---|---|
-| DWA core algorithm (`dwa_core.py`) | ✅ Implemented and tuned ([HOLO-DWA](https://github.com/blar-tw/HOLO-DWA)) |
-| Live PX4 SITL avoidance node (`scanner.py`) | ✅ Implemented in the companion repo |
-| Experiment harness + results | ✅ 15/15 runs, 0 collisions |
-| `obstacle_avoidance` package in D-Guide | 📋 Planned (steps above) |
-| LiDAR on the physical drone | 📋 Planned (hardware) |
+| DWA core algorithm (`dwa_core.py`) | ✅ Implemented and tuned (vendored from HOLO-DWA) |
+| Flight executor (`dwa_navigator`, DroneKit GUIDED) | ✅ Implemented |
+| Experiment harness + results | ✅ 15/15 runs, 0 collisions (companion repo, SITL) |
+| Real-drone flight tuning | 🟡 Verify `LIDAR_FLIP_Y`, `ROBOT_RADIUS`, speeds on your airframe |

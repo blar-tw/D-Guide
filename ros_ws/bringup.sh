@@ -1,26 +1,49 @@
 #!/bin/bash
-# bringup.sh
+# bringup.sh — build and launch the D-Guide mission (flight + brain).
+#
+# Starts: path planner + flight executor + LLM command bridge, then the
+# control node in the foreground. Add the microphone front-end separately
+# with ./voice.sh for the full spoken-command demo.
+#
+# Flight executor (env FLIGHT_EXECUTOR):
+#   dwa (default) -> obstacle_avoidance/dwa_navigator: waypoint following with
+#                    live LiDAR obstacle avoidance (the demo).
+#   simple        -> mission_manager/followpp_server: plain simple_goto, no
+#                    avoidance (bring-up / no-LiDAR testing fallback).
 
-set -e  # 有錯就停止執行，避免錯誤持續下去
+set -e
 
-# Load secrets from repo-root .env (gitignored) so nodes can read API keys
+# Load config + secrets from repo-root .env (gitignored)
 ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
 if [ -f "$ENV_FILE" ]; then
-  echo "🔑 Loading secrets from $ENV_FILE"
+  echo "🔑 Loading config from $ENV_FILE"
   set -a; . "$ENV_FILE"; set +a
 else
-  echo "⚠️  No .env found at $ENV_FILE (copy .env.example to .env and fill in your keys)"
+  echo "⚠️  No .env found at $ENV_FILE (copy .env.example to .env and fill it in)"
 fi
 
-echo "🔧 設定 ROS2 環境..."
+echo "🔧 Building workspace..."
 colcon build
 source install/setup.bash
-echo "🚀 啟動各節點中..."
+
+FLIGHT_EXECUTOR="${FLIGHT_EXECUTOR:-dwa}"
+if [ "$FLIGHT_EXECUTOR" = "simple" ]; then
+  FLIGHT_CMD="ros2 run mission_manager followpp_server"
+  echo "🛩️  Flight executor: simple_goto (no avoidance)"
+else
+  FLIGHT_CMD="ros2 run obstacle_avoidance dwa_navigator"
+  echo "🛩️  Flight executor: DWA obstacle avoidance"
+fi
+
+echo "🚀 Starting nodes..."
 ros2 run path_planning pp_node &
 PP_PID=$!
 
-ros2 run mission_manager followpp_server &
-FOLLOW_PID=$!
+$FLIGHT_CMD &
+FLIGHT_PID=$!
+
+ros2 run voice_mod llm_node &
+LLM_PID=$!
 
 CLEANED_UP=0
 force_kill_pid() {
@@ -45,18 +68,19 @@ cleanup() {
     return
   fi
   CLEANED_UP=1
-  echo "🛑 停止背景節點..."
+  echo "🛑 Stopping background nodes..."
   force_kill_pid "$PP_PID"
-  force_kill_pid "$FOLLOW_PID"
-  wait $PP_PID $FOLLOW_PID 2>/dev/null || true
+  force_kill_pid "$FLIGHT_PID"
+  force_kill_pid "$LLM_PID"
+  wait $PP_PID $FLIGHT_PID $LLM_PID 2>/dev/null || true
 }
 
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
-echo "✅ 所有節點已啟動，Control Node 在前景執行。"
-ros2 run mission_manager control_node_v3
+echo "✅ Nodes up. Control node in foreground (type a destination, or speak via ./voice.sh)."
+ros2 run mission_manager control_node
 EXIT_CODE=$?
 
 cleanup

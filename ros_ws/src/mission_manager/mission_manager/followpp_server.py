@@ -20,7 +20,7 @@ class FollowPPServer(Node):
         super().__init__('followpp_server')
 
         # Flight target is configurable so the same node runs against SITL or
-        # a real Pixhawk (see docs/SITL.md):
+        # a real Pixhawk (see docs/installation.md):
         #   ArduPilot SITL        : DRONE_CONNECTION=tcp:127.0.0.1:5760 (default)
         #   real Pixhawk over USB : DRONE_CONNECTION=/dev/ttyACM0
         self.connection_string = os.environ.get("DRONE_CONNECTION", "tcp:127.0.0.1:5760")

@@ -5,7 +5,7 @@ import collections.abc
 collections.MutableMapping = collections.abc.MutableMapping
 from dronekit import connect, VehicleMode, LocationGlobalRelative
 
-# Same env vars as followpp_server (see .env.example / docs/SITL.md):
+# Same env vars as followpp_server (see .env.example / docs/installation.md):
 #   real Pixhawk over USB : DRONE_CONNECTION=/dev/ttyACM0
 #   ArduPilot SITL        : DRONE_CONNECTION=tcp:127.0.0.1:5760 (default)
 CONNECTION_STRING = os.environ.get("DRONE_CONNECTION", "tcp:127.0.0.1:5760")

@@ -9,6 +9,9 @@ requests>=2.28
 dronekit>=2.9.2
 pymavlink>=2.4
 
+# Obstacle avoidance (HOLO-DWA planner — vectorized velocity search)
+numpy>=1.21
+
 # Voice interface (wake word + speech-to-text)
 pvporcupine>=3.0
 pvrecorder>=1.2
