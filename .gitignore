@@ -1,0 +1,25 @@
+# --- Secrets (never commit) ---
+.env
+.env.local
+**/api_key.json
+*credentials*.json
+*.wav
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+
+# --- ROS 2 / colcon build artifacts ---
+build/
+install/
+log/
+
+# --- Local quarantine for removed scratch files (delete when confirmed) ---
+.trash/
+
+# --- Local working notes (not part of the public repo) ---
+WORKLOG.md

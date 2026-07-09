@@ -1,0 +1,14 @@
+# Goal
+geometry_msgs/PoseStamped[] waypoints
+float32 tolerance
+
+---
+# Result
+bool success
+int32 last_reached_index
+string message
+
+---
+# Feedback
+int32 current_index
+float64 distance_to_goal

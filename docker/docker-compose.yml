@@ -1,0 +1,18 @@
+# Run from the repo root:
+#   docker compose -f docker/docker-compose.yml up --build -d
+#   docker compose -f docker/docker-compose.yml exec dguide bash
+#
+# host networking lets the container reach an ArduPilot SITL instance
+# running on the host at tcp:127.0.0.1:5760 (see docs/SITL.md).
+
+services:
+  dguide:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: d-guide
+    env_file:
+      - ../.env
+    network_mode: host
+    stdin_open: true
+    tty: true
