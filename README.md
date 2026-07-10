@@ -108,7 +108,7 @@ safe cruise altitude.
 A 2D LiDAR feeds the HOLO-DWA planner, which flies each waypoint under
 closed-loop velocity control and re-plans around obstacles at ~10 Hz. (The
 original design used camera-only YOLO avoidance; the shipped system uses LiDAR
-for reliability — see [docs/HOLO-DWA.md](docs/HOLO-DWA.md).)
+for reliability.)
 
 ### 3. Person following / pacing
 

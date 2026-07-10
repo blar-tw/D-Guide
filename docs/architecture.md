@@ -118,7 +118,7 @@ See [installation.md](installation.md) for the real-hardware bring-up.
   waypoint — it converts each GPS waypoint to a local NED goal and runs the
   HOLO-DWA planner over the `(vx, vy)` window every tick, commanding ArduPilot
   GUIDED velocity so the drone steers around obstacles the LiDAR sees. With no
-  scan it flies straight. See [HOLO-DWA.md](HOLO-DWA.md).
+  scan it flies straight.
 - **Cancellation**: `FollowPP` handles client cancel requests mid-flight by
   zeroing velocity and switching the vehicle to LAND.
 - **Flight-stack agnostic planner**: `dwa_core.py` is pure NumPy; the same
