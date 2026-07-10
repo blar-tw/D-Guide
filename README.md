@@ -29,7 +29,11 @@ map-reading skill, and a flat 2D view gives poor, non-real-time guidance in
 unfamiliar or complex environments. D-Guide replaces the screen with a physical
 guide you can just follow.
 
-Aspect that D-Guide worth, safety no lokking down the phone, precision physical guide, extensibility we aim to create a helper that can not only be your eye, listen to your voice but also know your heart.
+What makes D-Guide worthwhile:
+
+- **Safety** — no looking down at a phone while walking.
+- **Precision** — a physical guide you follow in the real world.
+- **Extensibility** — we aim to build a helper that is not only your eyes and ears, but eventually understands what you need.
 
 ## Use Cases
 
@@ -40,15 +44,12 @@ Aspect that D-Guide worth, safety no lokking down the phone, precision physical 
 
 ## Features
 
-- **Path Planning** — address → Google Maps Directions → GPS waypoint list, exposed as a ROS 2 service. It is suitable for street lvl planning and best route to arrive.
-example picture:
-- **Obstacle Avoidance** — using holonomic Dynamic Window Approach, a LiDAR-driven reactive flight: each waypoint is flown under closed-loop velocity control, re-planning around obstacles at ~10 Hz (source: github holo-dwa)
-- **Person following / pacing** — YOLO-based tracking to match the user's walking speed
-- **Hand gesture control** — fly commands via simple hand gestures (MediaPipe)(WIP)
-- **Voice pipeline** — Porcupine wake word → Google Cloud STT → command text,LLM command parsing — n → structured intent via the Claude API, with an offline rule-based fallback.
-
-- **Mission orchestration** — control node wires typed/spoken input → path service → avoidance flight action
-architecture png(ps oa is linked with lidar)
+- **Path Planning** — address → Google Maps Directions → GPS waypoint list, exposed as a ROS 2 service. Suitable for street-level planning and finding the best route to the destination.
+- **Obstacle Avoidance** — holonomic Dynamic Window Approach, a LiDAR-driven reactive flight: each waypoint is flown under closed-loop velocity control, re-planning around obstacles at ~10 Hz (source: holo-dwa).
+- **Person following / pacing** — YOLO-based tracking to match the user's walking speed.
+- **Hand gesture control** — fly commands via simple hand gestures (MediaPipe) (WIP).
+- **Voice pipeline** — Porcupine wake word → Google Cloud STT → command text → LLM command parsing into a structured intent via the Claude API, with an offline rule-based fallback.
+- **Mission orchestration** — control node wires typed/spoken input → path service → avoidance flight action.
 
 
 ## Hardware
@@ -70,6 +71,8 @@ and any part can be swapped or added.
 ## Software Architecture
 
 ![System architecture](docs/images/architecture.png)
+
+Note: the LiDAR feeds directly into the obstacle-avoidance node.
 
 The precise node / topic / service wiring (matches the ROS 2 code):
 
@@ -112,13 +115,16 @@ for reliability.)
 
 ### 3. Person following / pacing
 
-### 3. Voice & language
+A camera-based YOLO tracker detects the user and adjusts the drone's speed to
+match their walking pace, so the guide stays ahead without leaving them behind.
+
+### 4. Voice & language
 
 Porcupine wake word → Google Cloud Speech-to-Text → command text → the Claude
 API parses the natural-language request into a structured intent, with an
 offline rule-based fallback when no key is set.
 
-### 4. ROS 2 integration
+### 5. ROS 2 integration
 
 Every module is a ROS 2 node communicating over topics / services / actions, so
 avoidance, planning, and voice run independently and are easy to debug and
@@ -133,8 +139,9 @@ Platform** (Geocoding + Directions) · **Claude API** (command parsing) ·
 **Picovoice Porcupine** (wake word) · **Google Cloud Speech-to-Text** · **Docker**
 
 
-## installation
-installation.md
+## Installation
+
+See [installation.md](installation.md) for setup and dependency instructions.
 
 
 ## References
