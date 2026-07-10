@@ -33,7 +33,7 @@ What makes D-Guide worthwhile:
 
 - **Safety** — no looking down at a phone while walking.
 - **Precision** — a physical guide you follow in the real world.
-- **Extensibility** — we aim to build a helper that is not only your eyes and ears, but eventually understands what you need.
+- **Extensibility** — we aim to build a helper that is not only your eyes and ears, but eventually understands what you need. A RoboHelper
 
 ## Use Cases
 
@@ -45,7 +45,7 @@ What makes D-Guide worthwhile:
 ## Features
 
 - **Path Planning** — address → Google Maps Directions → GPS waypoint list, exposed as a ROS 2 service. Suitable for street-level planning and finding the best route to the destination.
-- **Obstacle Avoidance** — holonomic Dynamic Window Approach, a LiDAR-driven reactive flight: each waypoint is flown under closed-loop velocity control, re-planning around obstacles at ~10 Hz (source: holo-dwa).
+- **Obstacle Avoidance** — holonomic Dynamic Window Approach, a LiDAR-driven reactive flight: each waypoint is flown under closed-loop velocity control, re-planning around obstacles at ~10 Hz (source: [holo-dwa](https://github.com/blar-tw/HOLO-DWA)).
 - **Person following / pacing** — YOLO-based tracking to match the user's walking speed.
 - **Hand gesture control** — fly commands via simple hand gestures (MediaPipe) (WIP).
 - **Voice pipeline** — Porcupine wake word → Google Cloud STT → command text → LLM command parsing into a structured intent via the Claude API, with an offline rule-based fallback.
@@ -66,7 +66,7 @@ and any part can be swapped or added.
 | Range sensor | 2D LiDAR | Obstacle avoidance (HOLO-DWA) |
 | Camera | Logitech C922 Pro | Vision input (gestures / person tracking) |
 
-![Drone hardware](docs/images/hardware.jpg)
+![Drone hardware](docs/images/hardware.png)
 
 ## Software Architecture
 
