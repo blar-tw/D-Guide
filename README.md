@@ -141,7 +141,7 @@ Platform** (Geocoding + Directions) · **Claude API** (command parsing) ·
 
 ## Installation
 
-See [installation.md](installation.md) for setup and dependency instructions.
+See [installation.md](docs/installation.md) for setup and dependency instructions.
 
 
 ## References
