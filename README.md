@@ -103,8 +103,7 @@ Full node/topic/service reference: [docs/architecture.md](docs/architecture.md)
 
 Address → **Geocoding API** (lat/lng) → **Directions API** (walking route) →
 resampled into a dense list of GPS waypoints → handed to the flight controller
-over MAVLink (DroneKit / pymavlink). The **Elevation API** can optionally set a
-safe cruise altitude.
+over MAVLink (DroneKit / pymavlink).
 ![waypoints](docs/images/waypoints.png)
 
 ### 2. Obstacle avoidance (LiDAR + HOLO-DWA)
@@ -112,7 +111,7 @@ safe cruise altitude.
 A 2D LiDAR feeds the HOLO-DWA planner, which flies each waypoint under
 closed-loop velocity control and re-plans around obstacles at ~10 Hz. (The
 original design used camera-only YOLO avoidance; the shipped system uses LiDAR
-for reliability.)
+for reliability/avoid heavy computation.)
 
 ### 3. Person following / pacing
 
