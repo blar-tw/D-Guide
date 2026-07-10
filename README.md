@@ -105,7 +105,6 @@ Address → **Geocoding API** (lat/lng) → **Directions API** (walking route) �
 resampled into a dense list of GPS waypoints → handed to the flight controller
 over MAVLink (DroneKit / pymavlink). The **Elevation API** can optionally set a
 safe cruise altitude.
-![waypoints](docs/images/waypoints.png)
 
 ### 2. Obstacle avoidance (LiDAR + HOLO-DWA)
 
