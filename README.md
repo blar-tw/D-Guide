@@ -67,7 +67,7 @@ and any part can be swapped or added.
 
 ![Drone hardware](docs/images/hardware.jpg)
 
-## Architecture
+## Software Architecture
 
 ![System architecture](docs/images/architecture.png)
 
@@ -131,23 +131,8 @@ Platform** (Geocoding + Directions) · **Claude API** (command parsing) ·
 **Picovoice Porcupine** (wake word) · **Google Cloud Speech-to-Text** · **Docker**
 
 
-## Repository Layout
-
-```
-├── docs/                 # architecture, installation, HOLO-DWA design
-├── docker/               # ROS 2 Humble container for the nav stack
-└── ros_ws/
-    ├── bringup.sh        # build + launch the mission (flight + brain)
-    ├── voice.sh          # microphone front-end (wake word + STT)
-    ├── scripts/          # standalone tools (flight smoke test, waypoint CLI)
-    └── src/
-        ├── interfaces/          # GetWaypoints.srv, FollowPP.action
-        ├── path_planning/       # Google Maps → waypoints service
-        ├── mission_manager/     # control_node + simple followpp_server
-        ├── obstacle_avoidance/  # HOLO-DWA planner + dwa_navigator flight
-        └── voice_mod/           # wake word, STT, LLM parsing
-```
-
+## installation
+installation.md
 
 
 ## References
@@ -159,6 +144,3 @@ Platform** (Geocoding + Directions) · **Claude API** (command parsing) ·
 - [MediaPipe Gesture Recognizer](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer) — planned
 - [Ultralytics YOLO](https://docs.ultralytics.com/) — planned person tracking
 
-## License
-
-[MIT](LICENSE)
