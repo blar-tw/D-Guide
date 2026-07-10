@@ -110,6 +110,8 @@ closed-loop velocity control and re-plans around obstacles at ~10 Hz. (The
 original design used camera-only YOLO avoidance; the shipped system uses LiDAR
 for reliability — see [docs/HOLO-DWA.md](docs/HOLO-DWA.md).)
 
+### 3. Person following / pacing
+
 ### 3. Voice & language
 
 Porcupine wake word → Google Cloud Speech-to-Text → command text → the Claude
@@ -141,6 +143,5 @@ installation.md
 - [Holybro X500 V2](https://holybro.com/collections/multicopter-kit/products/x500-v2-kits)
 - [ROS 2 Documentation](https://docs.ros.org/)
 - [Picovoice Porcupine](https://picovoice.ai/platform/porcupine/)
-- [MediaPipe Gesture Recognizer](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer) — planned
-- [Ultralytics YOLO](https://docs.ultralytics.com/) — planned person tracking
-
+- [MediaPipe Gesture Recognizer](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer)
+- [Ultralytics YOLO](https://docs.ultralytics.com/) 
