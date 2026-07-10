@@ -1,13 +1,13 @@
 # D-Guide
 
-**A voice-commanded guide drone that plans real street routes and leads you there.**
+**Drone Guide, a voice-commanded guide drone that plans real street routes and leads you there.**
 
 Tell the drone where you want to go. It geocodes the destination, pulls
 walking directions from Google Maps, converts every turn into GPS waypoints,
 takes off, and flies the route ahead of you.
 
-<!-- Demo GIF: record a SITL mission (see docs/installation.md) and drop it here -->
-<!-- ![Demo](docs/images/demo.gif) -->
+## Demo
+WIP
 
 ## Overview
 
@@ -29,37 +29,27 @@ map-reading skill, and a flat 2D view gives poor, non-real-time guidance in
 unfamiliar or complex environments. D-Guide replaces the screen with a physical
 guide you can just follow.
 
-| Aspect | Phone navigation (e.g. Google Maps) | D-Guide |
-|---|---|---|
-| Safety | Low — eyes on the screen | High — no looking down |
-| Precision | Medium | High — a physical guide beats a flat map |
-| Efficiency | Low — stop to check the route | High — just follow the drone |
-| Ease of use | Needs map-reading & sense of direction | Just follow the drone |
-| Interaction | Single-mode | Voice + gesture |
-| Cost | Low | Higher — the main trade-off |
-| Extensibility | Low | High — room for new applications |
+Aspect that D-Guide worth, safety no lokking down the phone, precision physical guide, extensibility we aim to create a helper that can not only be your eye, listen to your voice but also know your heart.
 
 ## Use Cases
 
 - **Guided navigation** for children, older adults, or anyone unfamiliar with map apps
 - **Museum / campus tours** — lead visitors around, narrate exhibits
-- **Building evacuation** — guide people to a safe exit
 - **Marathon / route guidance** — keep runners on the correct course
 - **Low-vision assistance** — paired with the voice system for more freedom of movement
 
 ## Features
 
-- **Street-level path planning** — address → Google Maps Directions → GPS waypoint list, exposed as a ROS 2 service
-<!-- optional: add a path-planning screenshot here, e.g. docs/images/pathplanning.jpg -->
-- **HOLO-DWA obstacle avoidance** — LiDAR-driven reactive flight: each waypoint is flown under closed-loop velocity control, re-planning around obstacles at ~10 Hz ([design](docs/HOLO-DWA.md))
-- **Voice pipeline** — Porcupine wake word → Google Cloud STT → command text, wired end-to-end into the mission
-- **LLM command parsing** — natural language ("take me to the library") → structured intent via the Claude API, with an offline rule-based fallback
-- **Mission orchestration** — control node wires typed/spoken input → path service → avoidance flight action
-
-In progress:
-
-- **Hand gesture control** — fly commands via simple hand gestures (MediaPipe)
+- **Path Planning** — address → Google Maps Directions → GPS waypoint list, exposed as a ROS 2 service. It is suitable for street lvl planning and best route to arrive.
+example picture:
+- **Obstacle Avoidance** — using holonomic Dynamic Window Approach, a LiDAR-driven reactive flight: each waypoint is flown under closed-loop velocity control, re-planning around obstacles at ~10 Hz (source: github holo-dwa)
 - **Person following / pacing** — YOLO-based tracking to match the user's walking speed
+- **Hand gesture control** — fly commands via simple hand gestures (MediaPipe)(WIP)
+- **Voice pipeline** — Porcupine wake word → Google Cloud STT → command text,LLM command parsing — n → structured intent via the Claude API, with an offline rule-based fallback.
+
+- **Mission orchestration** — control node wires typed/spoken input → path service → avoidance flight action
+architecture png(ps oa is linked with lidar)
+
 
 ## Hardware
 
@@ -140,68 +130,6 @@ GUIDED velocity control) · **DroneKit / pymavlink** (MAVLink) · **2D LiDAR**
 Platform** (Geocoding + Directions) · **Claude API** (command parsing) ·
 **Picovoice Porcupine** (wake word) · **Google Cloud Speech-to-Text** · **Docker**
 
-## Quick Start
-
-### Prerequisites
-
-- Ubuntu 22.04 + [ROS 2 Humble](https://docs.ros.org/en/humble/Installation.html)
-- Python 3.10, then `pip install -r requirements.txt`
-- A [Google Maps API key](https://console.cloud.google.com/google/maps-apis)
-  (Geocoding + Directions enabled)
-
-### 1. Configure secrets
-
-```bash
-cp .env.example .env
-# edit .env — GOOGLE_MAPS_API_KEY is required; the rest are optional
-```
-
-`.env` is gitignored; nothing secret ever enters the repo.
-
-### 2. Point at your flight controller
-
-Edit `.env` — real Pixhawk over USB is `DRONE_CONNECTION=/dev/ttyACM0`; set
-`LIDAR_TOPIC` to whatever your 2D laser publishes. Full hardware bring-up
-(Raspberry Pi + Pixhawk/ArduPilot + LiDAR wiring, frame check, safety) is in
-**[docs/installation.md](docs/installation.md)**. No drone handy? The same
-guide has an ArduPilot SITL section to rehearse the whole pipeline on a laptop.
-
-### 3. Build and fly
-
-```bash
-cd ros_ws
-./bringup.sh
-```
-
-`bringup.sh` loads `.env`, builds, starts the path planner + DWA avoidance
-flight executor + LLM bridge, then drops you into the control node:
-
-```
-Enter origin: Hukou Station
-Enter destination: <your destination>
-```
-
-The drone arms, takes off, and flies each street waypoint under closed-loop
-velocity control — steering around whatever the LiDAR sees — then lands.
-(No LiDAR / bring-up test: `FLIGHT_EXECUTOR=simple ./bringup.sh` uses plain
-`simple_goto`.)
-
-### 4. Voice commands (optional)
-
-```bash
-./voice.sh      # in another terminal, alongside ./bringup.sh
-```
-
-Wake word → speech-to-text → destination → flight. Or skip the mic and inject
-a command directly:
-
-```bash
-ros2 topic pub --once /command_text std_msgs/String \
-  "{data: 'take me from Hukou Station to the city library'}"
-```
-
-With `ANTHROPIC_API_KEY` set, parsing uses the Claude API; without it an
-offline rule-based parser handles the common phrasings.
 
 ## Repository Layout
 
@@ -220,33 +148,7 @@ offline rule-based parser handles the common phrasings.
         └── voice_mod/           # wake word, STT, LLM parsing
 ```
 
-## Validation & Testing
 
-D-Guide is application-focused: rather than a single benchmark, each module is
-measured for success rate, then the whole system is flown to real destinations
-to surface and fix issues. Planned test matrix:
-
-| Test | Goal | Method |
-|---|---|---|
-| Person-tracking stability | Reliably keep the right target | Vary speed / environment / user motion; log dropouts |
-| Voice success rate | Correctly parse & execute commands | 10 preset commands × 3 speakers; log correct execution |
-| Gesture success rate | Gesture-recognition accuracy | 5 preset gestures at varying distance/speed; log hits |
-| Avoidance response | React to sudden obstacles | Place obstacles without warning; observe avoidance |
-| Navigation success | Complete a full mission | 10 routes/destinations; log completion |
-
-## Roadmap
-
-- [ ] Record a demo GIF for this README
-- [ ] Hand-gesture control (MediaPipe) and YOLO person following
-- [ ] On-drone TTS feedback to the user
-
-## Companion Project
-
-**[HOLO-DWA](https://github.com/blar-tw/HOLO-DWA)** — the holonomic Dynamic
-Window Approach planner powering D-Guide's obstacle avoidance, built and tuned
-to 15/15 goal-reaching runs with zero collisions (PX4 SITL + Gazebo). Its
-`dwa_core.py` is vendored into this repo's `obstacle_avoidance` package; see
-[docs/HOLO-DWA.md](docs/HOLO-DWA.md).
 
 ## References
 
