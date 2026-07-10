@@ -1,30 +1,40 @@
-# D-Guide 🛸
+# D-Guide
 
 **A voice-commanded guide drone that plans real street routes and leads you there.**
 
 Tell the drone where you want to go. It geocodes the destination, pulls
 walking directions from Google Maps, converts every turn into GPS waypoints,
-takes off, and flies the route ahead of you — built on ROS 2 as a set of
-loosely-coupled nodes (service + action architecture), running on a Raspberry
-Pi companion computer with a Pixhawk flight controller, and fully testable
-with no hardware in SITL.
+takes off, and flies the route ahead of you.
 
 <!-- Demo GIF: record a SITL mission (see docs/installation.md) and drop it here -->
 <!-- ![Demo](docs/images/demo.gif) -->
 
+## Hardware
+
+Built on a Holybro X500 V2 quad-frame with a Raspberry Pi companion computer
+and a Pixhawk flight controller; 3D-printed mounts carry the LiDAR and camera.
+
+![Drone hardware](docs/images/hardware.jpg)
+
 ## Features
 
-| Status | Feature |
-|---|---|
-| ✅ Implemented | **Street-level path planning** — address → Google Maps Directions → GPS waypoint list, exposed as a ROS 2 service |
-| ✅ Implemented | **HOLO-DWA obstacle avoidance** — LiDAR-driven reactive flight: each waypoint is flown under closed-loop velocity control, re-planning around obstacles at ~10 Hz. Tuned to 15/15 goal-reaching runs, zero collisions ([design](docs/HOLO-DWA.md)) |
-| ✅ Implemented | **Waypoint-following flight** — ROS 2 action server flies the route via MAVLink (ArduPilot GUIDED / DroneKit): arm → takeoff → follow → land, with live feedback. Simple `simple_goto` fallback for no-LiDAR bring-up |
-| ✅ Implemented | **Voice pipeline** — Porcupine wake word → Google Cloud STT → command text, wired end-to-end into the mission |
-| ✅ Implemented | **LLM command parsing** — natural language ("take me to the library") → structured intent via the Claude API, with an offline rule-based fallback |
-| ✅ Implemented | **Mission orchestration** — control node wires typed/spoken input → path service → avoidance flight action |
-| 🟡 Tuning | **Real-drone flight params** — `LIDAR_FLIP_Y`, `ROBOT_RADIUS`, speeds to verify per airframe ([installation](docs/installation.md)) |
+- **Street-level path planning** — address → Google Maps Directions → GPS waypoint list, exposed as a ROS 2 service
+<!-- optional: add a path-planning screenshot here, e.g. docs/images/pathplanning.jpg -->
+- **HOLO-DWA obstacle avoidance** — LiDAR-driven reactive flight: each waypoint is flown under closed-loop velocity control, re-planning around obstacles at ~10 Hz ([design](docs/HOLO-DWA.md))
+- **Voice pipeline** — Porcupine wake word → Google Cloud STT → command text, wired end-to-end into the mission
+- **LLM command parsing** — natural language ("take me to the library") → structured intent via the Claude API, with an offline rule-based fallback
+- **Mission orchestration** — control node wires typed/spoken input → path service → avoidance flight action
+
+In progress:
+
+- 🚧 **Hand gesture control** — fly commands via simple hand gestures
+
 
 ## Architecture
+
+![System architecture](docs/images/architecture.png)
+
+The precise node / topic / service wiring (matches the ROS 2 code):
 
 ```mermaid
 flowchart TB
@@ -54,6 +64,7 @@ GUIDED velocity control) · **DroneKit / pymavlink** (MAVLink) · **2D LiDAR**
 (`sensor_msgs/LaserScan`) · **NumPy** (vectorized DWA search) · **Google Maps
 Platform** (Geocoding + Directions) · **Claude API** (command parsing) ·
 **Picovoice Porcupine** (wake word) · **Google Cloud Speech-to-Text** · **Docker**
+
 
 ## Quick Start
 
@@ -137,9 +148,7 @@ offline rule-based parser handles the common phrasings.
 
 ## Roadmap
 
-- [ ] Verify avoidance flight params on the airframe (`LIDAR_FLIP_Y`, `ROBOT_RADIUS`, speeds)
 - [ ] Record a demo GIF for this README
-- [ ] Altitude profile from terrain elevation data
 - [ ] On-drone TTS feedback to the user
 
 ## Companion Project
